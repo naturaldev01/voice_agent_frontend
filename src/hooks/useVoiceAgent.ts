@@ -165,8 +165,12 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     isPlayingRef.current = true;
     const audioData = audioQueueRef.current.shift()!;
     
-    const audioBuffer = audioContextRef.current.createBuffer(1, audioData.length, 24000);
-    audioBuffer.copyToChannel(audioData, 0);
+    // Create a new Float32Array with explicit ArrayBuffer to fix TypeScript compatibility
+    const channelData = new Float32Array(audioData.length);
+    channelData.set(audioData);
+    
+    const audioBuffer = audioContextRef.current.createBuffer(1, channelData.length, 24000);
+    audioBuffer.copyToChannel(channelData, 0);
 
     const source = audioContextRef.current.createBufferSource();
     source.buffer = audioBuffer;
