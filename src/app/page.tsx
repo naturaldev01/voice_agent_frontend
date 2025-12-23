@@ -15,12 +15,69 @@ import {
   Clock,
   Globe,
   Sparkles,
-  Activity
+  Activity,
+  PhoneCall
 } from 'lucide-react';
 import { useVoiceAgent } from '@/hooks/useVoiceAgent';
 import { TranscriptPanel } from '@/components/TranscriptPanel';
 import { WaveformVisualizer } from '@/components/WaveformVisualizer';
 import { LanguageSelector } from '@/components/LanguageSelector';
+
+// Telefon çalma sesi oluşturucu
+function createRingtone(audioContext: AudioContext): { start: () => void; stop: () => void } {
+  let oscillator1: OscillatorNode | null = null;
+  let oscillator2: OscillatorNode | null = null;
+  let gainNode: GainNode | null = null;
+  let intervalId: NodeJS.Timeout | null = null;
+
+  const start = () => {
+    const playTone = () => {
+      oscillator1 = audioContext.createOscillator();
+      oscillator2 = audioContext.createOscillator();
+      gainNode = audioContext.createGain();
+
+      oscillator1.frequency.value = 440; // A4
+      oscillator2.frequency.value = 480; // Slightly higher
+
+      oscillator1.connect(gainNode);
+      oscillator2.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      gainNode.gain.value = 0.1;
+
+      oscillator1.start();
+      oscillator2.start();
+
+      // 1 saniye çal, 2 saniye sus
+      setTimeout(() => {
+        if (gainNode) {
+          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+        }
+        setTimeout(() => {
+          oscillator1?.stop();
+          oscillator2?.stop();
+        }, 100);
+      }, 1000);
+    };
+
+    playTone();
+    intervalId = setInterval(playTone, 3000);
+  };
+
+  const stop = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    if (gainNode) {
+      gainNode.gain.value = 0;
+    }
+    oscillator1?.stop();
+    oscillator2?.stop();
+  };
+
+  return { start, stop };
+}
 
 export default function Home() {
   const {
@@ -39,6 +96,32 @@ export default function Home() {
   } = useVoiceAgent();
 
   const [showTranscript, setShowTranscript] = useState(true);
+  const [isRinging, setIsRinging] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const ringtoneRef = useRef<{ start: () => void; stop: () => void } | null>(null);
+
+  // Telefon çalma efektli başlatma
+  const handleStartCall = async () => {
+    setIsRinging(true);
+    
+    // Audio context oluştur ve çalma sesini başlat
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    
+    ringtoneRef.current = createRingtone(audioContextRef.current);
+    ringtoneRef.current.start();
+    
+    // 3.5 saniye bekle (çalma efekti)
+    await new Promise(resolve => setTimeout(resolve, 3500));
+    
+    // Çalma sesini durdur
+    ringtoneRef.current?.stop();
+    setIsRinging(false);
+    
+    // Gerçek aramayı başlat
+    await startCall();
+  };
 
   return (
     <main className="h-screen gradient-bg flex flex-col overflow-hidden">
@@ -91,46 +174,71 @@ export default function Home() {
             animate={{ scale: 1, opacity: 1 }}
             className="relative mb-8"
           >
-            {/* Outer glow rings */}
-            {isCallActive && (
+            {/* Outer glow rings - Ringing or Active */}
+            {(isCallActive || isRinging) && (
               <>
                 <motion.div
-                  className="absolute inset-0 rounded-full bg-primary-500/20"
+                  className={`absolute inset-0 rounded-full ${isRinging ? 'bg-yellow-500/20' : 'bg-primary-500/20'}`}
                   animate={{
                     scale: [1, 1.3, 1],
                     opacity: [0.5, 0, 0.5],
                   }}
                   transition={{
-                    duration: 2,
+                    duration: isRinging ? 1 : 2,
                     repeat: Infinity,
                     ease: "easeInOut",
                   }}
                   style={{ width: 200, height: 200, left: -20, top: -20 }}
                 />
                 <motion.div
-                  className="absolute inset-0 rounded-full bg-primary-500/10"
+                  className={`absolute inset-0 rounded-full ${isRinging ? 'bg-yellow-500/10' : 'bg-primary-500/10'}`}
                   animate={{
                     scale: [1, 1.5, 1],
                     opacity: [0.3, 0, 0.3],
                   }}
                   transition={{
-                    duration: 2,
+                    duration: isRinging ? 1 : 2,
                     repeat: Infinity,
                     ease: "easeInOut",
-                    delay: 0.5,
+                    delay: 0.3,
                   }}
                   style={{ width: 200, height: 200, left: -20, top: -20 }}
                 />
+                {isRinging && (
+                  <motion.div
+                    className="absolute inset-0 rounded-full bg-yellow-500/5"
+                    animate={{
+                      scale: [1, 1.7, 1],
+                      opacity: [0.2, 0, 0.2],
+                    }}
+                    transition={{
+                      duration: 1,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                      delay: 0.6,
+                    }}
+                    style={{ width: 200, height: 200, left: -20, top: -20 }}
+                  />
+                )}
               </>
             )}
             
             {/* Avatar container */}
             <div className={`relative w-40 h-40 rounded-full flex items-center justify-center transition-all duration-500 ${
-              isCallActive 
-                ? 'bg-gradient-to-br from-primary-500/30 to-primary-700/30 glow-green' 
-                : 'bg-white/5'
+              isRinging
+                ? 'bg-gradient-to-br from-yellow-500/30 to-orange-600/30'
+                : isCallActive 
+                  ? 'bg-gradient-to-br from-primary-500/30 to-primary-700/30 glow-green' 
+                  : 'bg-white/5'
             }`}>
-              {isCallActive && isSpeaking ? (
+              {isRinging ? (
+                <motion.div
+                  animate={{ rotate: [0, -15, 15, -15, 15, 0] }}
+                  transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 0.5 }}
+                >
+                  <PhoneCall className="w-16 h-16 text-yellow-400" />
+                </motion.div>
+              ) : isCallActive && isSpeaking ? (
                 <WaveformVisualizer isActive={isSpeaking} />
               ) : (
                 <User className={`w-16 h-16 ${isCallActive ? 'text-primary-400' : 'text-white/30'}`} />
@@ -139,14 +247,24 @@ export default function Home() {
 
             {/* Status indicator */}
             <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 ${
-              isCallActive 
-                ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30' 
-                : 'bg-white/5 text-white/40 border border-white/10'
+              isRinging
+                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                : isCallActive 
+                  ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30' 
+                  : 'bg-white/5 text-white/40 border border-white/10'
             }`}>
               <span className={`w-2 h-2 rounded-full ${
-                isCallActive ? 'bg-primary-400 animate-pulse' : 'bg-white/30'
+                isRinging 
+                  ? 'bg-yellow-400 animate-pulse' 
+                  : isCallActive 
+                    ? 'bg-primary-400 animate-pulse' 
+                    : 'bg-white/30'
               }`} />
-              {isCallActive ? (isSpeaking ? 'Speaking' : isListening ? 'Listening' : 'Connected') : 'Offline'}
+              {isRinging 
+                ? 'Calling...' 
+                : isCallActive 
+                  ? (isSpeaking ? 'Speaking' : isListening ? 'Listening' : 'Connected') 
+                  : 'Offline'}
             </div>
           </motion.div>
 
@@ -158,12 +276,18 @@ export default function Home() {
             className="text-center mb-8"
           >
             <h2 className="text-2xl font-semibold text-white mb-2">
-              {isCallActive ? agentName || 'AI Assistant' : 'Start a Conversation'}
+              {isRinging 
+                ? 'Connecting...' 
+                : isCallActive 
+                  ? agentName || 'AI Assistant' 
+                  : 'Start a Conversation'}
             </h2>
             <p className="text-white/50 max-w-md">
-              {isCallActive 
-                ? 'Speaking with Natural Clinic AI Assistant'
-                : 'Click the button below to speak with our AI assistant about medical treatments'}
+              {isRinging
+                ? 'Please wait while we connect you to a Natural Clinic consultant'
+                : isCallActive 
+                  ? 'Speaking with Natural Clinic AI Assistant'
+                  : 'Click the button below to speak with our AI assistant about medical treatments'}
             </p>
           </motion.div>
 
@@ -174,14 +298,29 @@ export default function Home() {
             transition={{ delay: 0.2 }}
             className="flex items-center gap-4"
           >
-            {!isCallActive ? (
+            {!isCallActive && !isRinging ? (
               <button
-                onClick={startCall}
+                onClick={handleStartCall}
                 className="group relative px-8 py-4 bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl text-white font-semibold text-lg shadow-xl shadow-primary-500/25 hover:shadow-primary-500/40 transition-all hover:scale-105 active:scale-95 pulse-glow"
               >
                 <span className="flex items-center gap-3">
                   <Phone className="w-5 h-5" />
                   Start Conversation
+                </span>
+              </button>
+            ) : isRinging ? (
+              <button
+                disabled
+                className="group relative px-8 py-4 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-2xl text-white font-semibold text-lg shadow-xl shadow-yellow-500/25 cursor-not-allowed"
+              >
+                <span className="flex items-center gap-3">
+                  <motion.div
+                    animate={{ rotate: [0, -10, 10, -10, 10, 0] }}
+                    transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 0.3 }}
+                  >
+                    <PhoneCall className="w-5 h-5" />
+                  </motion.div>
+                  Ringing...
                 </span>
               </button>
             ) : (
