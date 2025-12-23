@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { 
   Phone, 
   PhoneOff, 
@@ -44,14 +45,17 @@ export default function Home() {
       {/* Header */}
       <header className="glass-card border-b border-white/5 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-white">Natural Clinic</h1>
-              <p className="text-xs text-white/50">AI Voice Agent</p>
-            </div>
+          <div className="flex items-center gap-4">
+            <Image 
+              src="/logo.png" 
+              alt="Natural Clinic" 
+              width={160} 
+              height={48}
+              className="h-10 w-auto"
+              priority
+            />
+            <div className="h-8 w-px bg-white/10" />
+            <p className="text-sm text-white/50">AI Voice Agent</p>
           </div>
           
           <div className="flex items-center gap-4">
