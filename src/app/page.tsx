@@ -102,6 +102,8 @@ export default function Home() {
 
   // Telefon çalma efektli başlatma
   const handleStartCall = async () => {
+    console.log('[DEBUG] handleStartCall started');
+    
     setIsRinging(true);
     
     // Audio context oluştur ve çalma sesini başlat
@@ -117,10 +119,18 @@ export default function Home() {
     
     // Çalma sesini durdur
     ringtoneRef.current?.stop();
-    setIsRinging(false);
     
-    // Gerçek aramayı başlat
-    await startCall();
+    console.log('[DEBUG] Ringtone stopped, calling startCall()');
+    
+    // Gerçek aramayı başlat - isRinging'i startCall tamamlandıktan sonra kapat
+    try {
+      await startCall();
+      console.log('[DEBUG] startCall() completed');
+    } catch (error) {
+      console.error('[DEBUG] startCall() error:', error);
+    }
+    
+    setIsRinging(false);
   };
 
   return (

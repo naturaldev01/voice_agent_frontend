@@ -46,35 +46,57 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
   const isPlayingRef = useRef(false);
   const partialTranscriptRef = useRef<string>('');
 
+  // Track if socket was initialized to prevent StrictMode double initialization
+  const socketInitializedRef = useRef(false);
+
   // Initialize socket connection
   useEffect(() => {
+    // Prevent double initialization in StrictMode
+    if (socketInitializedRef.current) {
+      console.log('[Socket] Already initialized, skipping');
+      return;
+    }
+    socketInitializedRef.current = true;
+
+    console.log('[Socket] Initializing socket connection to', `${BACKEND_URL}/voice`);
+    
     socketRef.current = io(`${BACKEND_URL}/voice`, {
       transports: ['websocket'],
       autoConnect: false,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     const socket = socketRef.current;
 
     socket.on('connect', () => {
-      console.log('Socket connected');
+      console.log('[Socket] Connected, id:', socket.id);
       setIsConnected(true);
     });
 
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected, reason:', reason);
       setIsConnected(false);
-      setIsCallActive(false);
+      // Only reset call state if it was an unexpected disconnect
+      if (reason === 'io server disconnect' || reason === 'transport close') {
+        setIsCallActive(false);
+      }
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('[Socket] Connection error:', error.message);
     });
 
     socket.on('conversation_started', (data: { conversationId: string; agentName: string; language: string }) => {
-      console.log('Conversation started:', data);
+      console.log('[Socket] Conversation started:', data);
       setAgentName(data.agentName);
       setLanguageState(data.language);
       setIsCallActive(true);
     });
 
     socket.on('conversation_ended', () => {
-      console.log('Conversation ended');
+      console.log('[Socket] Conversation ended');
       setIsCallActive(false);
       setIsSpeaking(false);
       setIsListening(false);
@@ -127,11 +149,14 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     });
 
     socket.on('error', (data: { message: string }) => {
-      console.error('Socket error:', data.message);
+      console.error('[Socket] Error:', data.message);
     });
 
+    // Cleanup only on actual unmount, not on StrictMode re-render
     return () => {
-      socket.disconnect();
+      console.log('[Socket] Cleanup called');
+      // Don't disconnect immediately - let the connection persist
+      // socket.disconnect() will be called by endCall() when needed
     };
   }, []);
 
@@ -240,8 +265,10 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
   }, []);
 
   const startCall = useCallback(async () => {
+    console.log('[startCall] Starting call...');
     try {
       // Request microphone access
+      console.log('[startCall] Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 24000,
@@ -251,25 +278,33 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
           autoGainControl: true,
         }
       });
+      console.log('[startCall] Microphone access granted');
       
       mediaStreamRef.current = stream;
 
       // Create audio context
+      console.log('[startCall] Creating audio context...');
       audioContextRef.current = new AudioContext({ sampleRate: 24000 });
       
       // Connect socket
+      console.log('[startCall] Connecting socket...');
       socketRef.current?.connect();
 
       // Wait for connection
       await new Promise<void>((resolve) => {
         if (socketRef.current?.connected) {
+          console.log('[startCall] Socket already connected');
           resolve();
         } else {
-          socketRef.current?.once('connect', () => resolve());
+          socketRef.current?.once('connect', () => {
+            console.log('[startCall] Socket connected via event');
+            resolve();
+          });
         }
       });
 
       // Start conversation
+      console.log('[startCall] Emitting start_conversation with language:', language);
       socketRef.current?.emit('start_conversation', { language });
 
       // Set up audio processing
@@ -296,7 +331,7 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
         }
         const base64 = btoa(binary);
 
-        // Send to server
+        // Send to server - let OpenAI's VAD handle silence detection
         socketRef.current?.emit('audio_data', { audio: base64 });
       };
 
@@ -305,12 +340,14 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
       processorRef.current = processor;
 
       setTranscript([]);
+      console.log('[startCall] Call setup complete');
     } catch (error) {
-      console.error('Error starting call:', error);
+      console.error('[startCall] Error:', error);
     }
-  }, [language, isMuted]);
+  }, [language]); // Removed isMuted - it's checked at runtime in onaudioprocess
 
   const endCall = useCallback(() => {
+    console.log('[Socket] endCall called');
     socketRef.current?.emit('end_conversation');
     
     // Clean up audio
@@ -332,7 +369,9 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     
+    // Disconnect socket and reset initialization flag so it can be reused
     socketRef.current?.disconnect();
+    socketInitializedRef.current = false;
     
     setIsCallActive(false);
     setIsSpeaking(false);
