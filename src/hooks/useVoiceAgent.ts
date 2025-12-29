@@ -11,8 +11,12 @@ export interface TranscriptMessage {
   isPartial?: boolean;
 }
 
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+
 interface UseVoiceAgentReturn {
   isConnected: boolean;
+  connectionState: ConnectionState;
+  connectionError: string | null;
   isCallActive: boolean;
   isMuted: boolean;
   isSpeaking: boolean;
@@ -24,12 +28,15 @@ interface UseVoiceAgentReturn {
   endCall: () => void;
   toggleMute: () => void;
   setLanguage: (lang: string) => void;
+  reconnect: () => void;
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
 export function useVoiceAgent(): UseVoiceAgentReturn {
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isCallActive, setIsCallActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -45,6 +52,8 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
   const audioQueueRef = useRef<Float32Array[]>([]);
   const isPlayingRef = useRef(false);
   const partialTranscriptRef = useRef<string>('');
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
 
   // Track if socket was initialized to prevent StrictMode double initialization
   const socketInitializedRef = useRef(false);
@@ -73,19 +82,46 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     socket.on('connect', () => {
       console.log('[Socket] Connected, id:', socket.id);
       setIsConnected(true);
+      setConnectionState('connected');
+      setConnectionError(null);
+      reconnectAttemptsRef.current = 0;
     });
 
     socket.on('disconnect', (reason) => {
       console.log('[Socket] Disconnected, reason:', reason);
       setIsConnected(false);
+      
       // Only reset call state if it was an unexpected disconnect
       if (reason === 'io server disconnect' || reason === 'transport close') {
         setIsCallActive(false);
+        setConnectionState('disconnected');
       }
     });
 
     socket.on('connect_error', (error) => {
       console.error('[Socket] Connection error:', error.message);
+      setConnectionError(error.message);
+      setConnectionState('error');
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      console.log('[Socket] Reconnection attempt:', attempt);
+      reconnectAttemptsRef.current = attempt;
+      setConnectionState('reconnecting');
+      setConnectionError(`Reconnecting... (attempt ${attempt}/${maxReconnectAttempts})`);
+    });
+
+    socket.io.on('reconnect', () => {
+      console.log('[Socket] Reconnected');
+      setConnectionState('connected');
+      setConnectionError(null);
+      reconnectAttemptsRef.current = 0;
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      console.error('[Socket] Reconnection failed');
+      setConnectionState('error');
+      setConnectionError('Connection failed. Please check your internet and try again.');
     });
 
     socket.on('conversation_started', (data: { conversationId: string; agentName: string; language: string }) => {
@@ -394,8 +430,22 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     }
   }, [isCallActive]);
 
+  const reconnect = useCallback(() => {
+    console.log('[Socket] Manual reconnect triggered');
+    setConnectionState('connecting');
+    setConnectionError(null);
+    reconnectAttemptsRef.current = 0;
+    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current.connect();
+    }
+  }, []);
+
   return {
     isConnected,
+    connectionState,
+    connectionError,
     isCallActive,
     isMuted,
     isSpeaking,
@@ -407,6 +457,7 @@ export function useVoiceAgent(): UseVoiceAgentReturn {
     endCall,
     toggleMute,
     setLanguage,
+    reconnect,
   };
 }
 

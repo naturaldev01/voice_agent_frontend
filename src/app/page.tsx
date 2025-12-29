@@ -22,6 +22,7 @@ import { useVoiceAgent } from '@/hooks/useVoiceAgent';
 import { TranscriptPanel } from '@/components/TranscriptPanel';
 import { WaveformVisualizer } from '@/components/WaveformVisualizer';
 import { LanguageSelector } from '@/components/LanguageSelector';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
 
 // Telefon çalma sesi oluşturucu
 function createRingtone(audioContext: AudioContext): { start: () => void; stop: () => void } {
@@ -82,6 +83,8 @@ function createRingtone(audioContext: AudioContext): { start: () => void; stop: 
 export default function Home() {
   const {
     isConnected,
+    connectionState,
+    connectionError,
     isCallActive,
     isMuted,
     isSpeaking,
@@ -93,6 +96,7 @@ export default function Home() {
     endCall,
     toggleMute,
     setLanguage,
+    reconnect,
   } = useVoiceAgent();
 
   const [showTranscript, setShowTranscript] = useState(true);
@@ -135,6 +139,13 @@ export default function Home() {
 
   return (
     <main className="h-screen gradient-bg flex flex-col overflow-hidden">
+      {/* Connection Status Banner */}
+      <ConnectionStatus
+        connectionState={connectionState}
+        connectionError={connectionError}
+        onReconnect={reconnect}
+      />
+      
       {/* Header */}
       <header className="glass-card border-b border-white/5 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
